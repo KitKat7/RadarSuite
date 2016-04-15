@@ -21,13 +21,12 @@ int startTimerValue0 = 0;
 
 // FFT INITIAL
 #define TEST_LENGTH 2048
-static q15_t testInput[TEST_LENGTH];
-static q15_t testOutput[TEST_LENGTH];
+static float32_t testInput[TEST_LENGTH];
+static float32_t testOutput[TEST_LENGTH];
+static float32_t testOutput2[TEST_LENGTH*2];
 static int kn = 0;
-
-uint32_t fftSize = 1024; 
-uint32_t ifftFlag = 0; 
-uint32_t doBitReverse = 1;
+uint32_t fftSize = 1024;
+uint32_t fftSize2 = 2048;
 // FFT INITIAL
 
 void setup() {
@@ -60,6 +59,8 @@ int value = 0;
 char c=0;
 
 void loop() {
+//  uint16_t i;
+  
   Serial.println("Starting\n");
 
   kn = 0;
@@ -92,16 +93,27 @@ void loop() {
   }
 
   digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
-
   delayMicroseconds(readPeriod);
+  digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
   timer0.end();
+
+//  for(i=0; i<1024; i++)
+//  {
+//    Serial.printf("%f\t", testInput[i*2]);
+//  }
+//  Serial.printf("\n****testInput Above****\n");
+//  for(i=0; i<1024; i++)
+//  {
+//    Serial.printf("%f\t", testInput[i*2+1]);
+//  }
+//  Serial.printf("\n****testInput Above****\n");
     
-  arm_cfft_q15_app();
+  arm_cfft_f32_app(testInput);
+  arm_cifft_f32_app(testOutput);
 }
 
 void timer0_callback(void) {
     adc->startSingleRead(readPin0, ADC_0); // also: startSingleDifferential, analogSynchronizedRead, analogSynchronizedReadDifferential
-    //digitalWriteFast(ledPin+1, !digitalReadFast(ledPin+1));
 }
 
 
@@ -136,78 +148,72 @@ void adc0_isr() {
 }
  
  
-void arm_cfft_q15_app(void)
+void arm_cfft_f32_app(float32_t *data)
 {
-  uint32_t i;
-  arm_cfft_radix4_instance_q15 S;
-
-  arm_cfft_radix4_init_q15(&S, fftSize, ifftFlag, doBitReverse);
-   
-  for(i=0; i<1024; i++)
-  {
-    // testInput[i*2+1] = 0;
-    // testInput[i*2] = arm_sin_q15(2*3.1415926f*50*i/1000);
-    Serial.printf("%d\t", testInput[i*2]);
-  }
-
-   Serial.printf("\n****Input Above****\n");
-   
-  arm_cfft_radix4_q15(&S, testInput);
-  arm_copy_q15(testInput, testOutput, 2048);
-
-  for(i=0; i<1024; i++)
-  {
-    Serial.printf("%d\t", testInput[i*2]);
-  }
-  Serial.printf("\n****Output Above****\n");
-  for(i=0; i<1024; i++)
-  {
-    Serial.printf("%d\t", testInput[i*2+1]);
-  }
-  Serial.printf("\n****Output Above****\n");
+//  uint16_t i;
+  arm_copy_f32(data, testOutput, 2048);
+  arm_cfft_radix4_instance_f32 S;
   
-  //ifft test  
-  for(i=0; i<1024; i++)
-  {
-    uint16_t tmp = testOutput[i*2] & 0x8000;
-    uint16_t tmp2 = (testOutput[i*2] & 0x7fe0) >> 5;
-    testOutput[i*2] = tmp2 + (tmp2 << 1) + (tmp2 << 2) + (tmp2<< 3) + (tmp2 << 4);
-    testOutput[i*2] = (testOutput[i*2] & 0x7fff) | tmp;
-    Serial.printf("%d\t", testOutput[i*2]);
-//    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  Serial.printf("\n****Output Above****\n");
-  for(i=0; i<1024; i++)
-  {
-    uint16_t tmp = testOutput[i*2+1] & 0x8000;
-    uint16_t tmp2 = (testOutput[i*2+1] & 0x7fe0) >> 5;
-    testOutput[i*2+1] = tmp2 + (tmp2 << 1) + (tmp2 << 2) + (tmp2<< 3) + (tmp2 << 4);
-    testOutput[i*2+1] = (testOutput[i*2+1] &  0x7fff) | tmp;
-    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  Serial.printf("\n****Output Above****\n");
-    
-  arm_cfft_radix4_init_q15(&S, fftSize, 1, doBitReverse);
-  arm_cfft_radix4_q15(&S, testOutput);
-  for(i=0; i<1024; i++)
-  {
-    testOutput[i*2] = testOutput[i*2] << 10;
-    Serial.printf("%d\t", testOutput[i*2]);
-//    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  Serial.printf("\n****IFFT Output Above****\n");
-  for(i=0; i<1024; i++)
-  {
-    testOutput[i*2+1] = testOutput[i*2+1] << 10;
-    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  //ifft test
-  Serial.printf("\n****IFFT Output Above****\n");
+  // fft
+  arm_cfft_radix4_init_f32(&S, fftSize, 0, 1);
+  arm_cfft_radix4_f32(&S, testOutput);
+  // fft
 
-//  uint16_t ii = 0;
-//  q15_t qq = 0;
-//  for (ii = 0; ii < 65536; ii++) {
-//    qq = ii;
-//    Serial.printf("%d\n", qq);
+//  for(i=0; i<1024; i++)
+//  {
+//    Serial.printf("%f\t", testOutput[i*2]);
+////    Serial.printf("%f\t", testOutput[i*2+1]);
 //  }
+//  Serial.printf("\n****testOutput Above****\n");
+//  for(i=0; i<1024; i++)
+//  {
+//    Serial.printf("%f\t", testOutput[i*2+1]);
+//  }
+//  Serial.printf("\n****testOutput Above****\n");
+//    
+//  Serial.printf("****Finshed****\n");
+}
+
+void arm_cifft_f32_app(float32_t *data)
+{
+//  uint16_t i;
+  arm_copy_f32(data, testOutput, 2048);
+  arm_cfft_radix4_instance_f32 S;
+  // ifft
+  arm_cfft_radix4_init_f32(&S, fftSize, 1, 1);
+  arm_cfft_radix4_f32(&S, testOutput);
+  // ifft
+
+//  for(i=0; i<1024; i++)
+//  {
+//    Serial.printf("%f\t", testOutput[i*2]);
+//  }
+//    Serial.printf("\n****IFFT Output Above****\n");
+//  for(i=0; i<1024; i++)
+//  {
+//    Serial.printf("%f\t", testOutput[i*2+1]);
+//  }
+//  Serial.printf("\n****IFFT Output Above****\n");
+//      
+//  Serial.printf("****Finshed****\n");
+}
+
+void arm_cfft_f32_app(float32_t *data)
+{
+  arm_copy_f32(data, testOutput2, 4096);
+  arm_cfft_radix4_instance_f32 S;
+  // fft
+  arm_cfft_radix4_init_f32(&S, fftSize2, 0, 1);
+  arm_cfft_radix4_f32(&S, testOutput2);
+  // fft
+}
+
+void arm_cifft_f32_app(float32_t *data)
+{
+  arm_copy_f32(data, testOutput2, 4096);
+  arm_cfft_radix4_instance_f32 S;
+  // ifft
+  arm_cfft_radix4_init_f32(&S, fftSize2, 1, 1);
+  arm_cfft_radix4_f32(&S, testOutput2);
+  // ifft
 }

@@ -13,6 +13,7 @@ const int period0 = 100; // us
 const int readPin1 = A3;
 const int period1 = 100; // us
 const int readPeriod = 102400; // us
+static int kn = 0;
 ADC *adc = new ADC(); // adc object
 IntervalTimer timer0;
 // RingBuffer *buffer0 = new RingBuffer; // buffers to store the values
@@ -20,17 +21,13 @@ int startTimerValue0 = 0;
 // ADC INITIAL
 
 // FFT INITIAL
-#define TEST_LENGTH 2048
-static q15_t testInput[TEST_LENGTH];
-static q15_t testOutput[TEST_LENGTH];
-static int kn = 0;
-
-uint32_t fftSize = 1024; 
-uint32_t ifftFlag = 0; 
-uint32_t doBitReverse = 1;
+static q15_t testInput[1024];
 // FFT INITIAL
 
+int val;
+
 void setup() {
+  
   pinMode(ledPin, OUTPUT); // led blinks every loop
   pinMode(readPin0, INPUT); pinMode(readPin1, INPUT);
   
@@ -49,33 +46,32 @@ void setup() {
   // with 16 averages, 12 bits resolution and ADC_HIGH_SPEED conversion and sampling it takes about 32.5 us for a conversion
   
   Serial.begin(9600);
+  Serial1.begin(115200);
   Serial.println("Starting");
   adc->enableInterrupts(ADC_0);
   Serial.println("Timers started");
   
   delay(1000);
+  
 }
 
-int value = 0;
+//int value = 0;
 char c=0;
 
 void loop() {
-  Serial.println("Starting\n");
+  
+  uint16_t i;
+//  
+  Serial.println("Starting");
+  Serial.println(millis()); // <-------
 
   kn = 0;
   startTimerValue0 = timer0.begin(timer0_callback, period0);
+//  Serial.println(millis());
 
   if(startTimerValue0==false) {
           Serial.println("Timer0 setup failed");
   }
-  
-//  if(!buffer0->isEmpty()) { // read the values in the buffer
-//      Serial.print("Read pin 0: ");
-//      Serial.println(buffer0->read()*3.3/adc->getMaxValue());
-//      Serial.print("\n");
-//      //Serial.println("New value!");
-//  }
-
 
   if (Serial.available()) {
       c = Serial.read();
@@ -92,16 +88,44 @@ void loop() {
   }
 
   digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
-
   delayMicroseconds(readPeriod);
-  timer0.end();
-    
-  arm_cfft_q15_app();
+  digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
+  timer0.end(); // <------- Question here, maybe
+
+  Serial.println("Serial Output in ms:");
+  unsigned long tt1 = millis(); // <-------
+  for(i=0; i<1024; i++)
+  {
+    Serial1.printf("%d\t", testInput[i]);
+  }
+  unsigned long tt2 = millis(); // <-------
+  Serial.println(tt2-tt1); // <-------
+  Serial1.printf("\n****testOutput Above****\n");
+
+//  Serial1.write('A');
+
+//  // receive data from another XBee module
+//  val = Serial1.read();
+//  Serial.print(val);
+//  if (-1 != val) {
+//    if ('A' == val) {
+//      digitalWrite(ledPin, HIGH);
+//      delay(250);
+//      digitalWrite(ledPin, LOW);
+//      delay(250);
+//      digitalWrite(ledPin, HIGH);
+//      delay(250);
+//      digitalWrite(ledPin, LOW);
+//      delay(250);
+//    }
+//  }
+
 }
 
 void timer0_callback(void) {
+
     adc->startSingleRead(readPin0, ADC_0); // also: startSingleDifferential, analogSynchronizedRead, analogSynchronizedReadDifferential
-    //digitalWriteFast(ledPin+1, !digitalReadFast(ledPin+1));
+
 }
 
 
@@ -113,8 +137,7 @@ void adc0_isr() {
 
     // add value to correct buffer
     if(pin==readPin0) {
-        testInput[kn*2] = (adc->readSingle());
-        testInput[kn*2+1] = 0;
+        testInput[kn] = (adc->readSingle());
         kn++;
         if (kn >= 1024) {
           kn = 0;
@@ -134,80 +157,4 @@ void adc0_isr() {
     }
 
 }
- 
- 
-void arm_cfft_q15_app(void)
-{
-  uint32_t i;
-  arm_cfft_radix4_instance_q15 S;
 
-  arm_cfft_radix4_init_q15(&S, fftSize, ifftFlag, doBitReverse);
-   
-  for(i=0; i<1024; i++)
-  {
-    // testInput[i*2+1] = 0;
-    // testInput[i*2] = arm_sin_q15(2*3.1415926f*50*i/1000);
-    Serial.printf("%d\t", testInput[i*2]);
-  }
-
-   Serial.printf("\n****Input Above****\n");
-   
-  arm_cfft_radix4_q15(&S, testInput);
-  arm_copy_q15(testInput, testOutput, 2048);
-
-  for(i=0; i<1024; i++)
-  {
-    Serial.printf("%d\t", testInput[i*2]);
-  }
-  Serial.printf("\n****Output Above****\n");
-  for(i=0; i<1024; i++)
-  {
-    Serial.printf("%d\t", testInput[i*2+1]);
-  }
-  Serial.printf("\n****Output Above****\n");
-  
-  //ifft test  
-  for(i=0; i<1024; i++)
-  {
-    uint16_t tmp = testOutput[i*2] & 0x8000;
-    uint16_t tmp2 = (testOutput[i*2] & 0x7fe0) >> 5;
-    testOutput[i*2] = tmp2 + (tmp2 << 1) + (tmp2 << 2) + (tmp2<< 3) + (tmp2 << 4);
-    testOutput[i*2] = (testOutput[i*2] & 0x7fff) | tmp;
-    Serial.printf("%d\t", testOutput[i*2]);
-//    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  Serial.printf("\n****Output Above****\n");
-  for(i=0; i<1024; i++)
-  {
-    uint16_t tmp = testOutput[i*2+1] & 0x8000;
-    uint16_t tmp2 = (testOutput[i*2+1] & 0x7fe0) >> 5;
-    testOutput[i*2+1] = tmp2 + (tmp2 << 1) + (tmp2 << 2) + (tmp2<< 3) + (tmp2 << 4);
-    testOutput[i*2+1] = (testOutput[i*2+1] &  0x7fff) | tmp;
-    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  Serial.printf("\n****Output Above****\n");
-    
-  arm_cfft_radix4_init_q15(&S, fftSize, 1, doBitReverse);
-  arm_cfft_radix4_q15(&S, testOutput);
-  for(i=0; i<1024; i++)
-  {
-    testOutput[i*2] = testOutput[i*2] << 10;
-    Serial.printf("%d\t", testOutput[i*2]);
-//    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  Serial.printf("\n****IFFT Output Above****\n");
-  for(i=0; i<1024; i++)
-  {
-    testOutput[i*2+1] = testOutput[i*2+1] << 10;
-    Serial.printf("%d\t", testOutput[i*2+1]);
-  }
-  //ifft test
-  Serial.printf("\n****IFFT Output Above****\n");
-
-//  uint16_t ii = 0;
-//  q15_t qq = 0;
-//  for (ii = 0; ii < 65536; ii++) {
-//    qq = ii;
-//    Serial.printf("%d\n", qq);
-//  }
-}
