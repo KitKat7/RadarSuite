@@ -1,3 +1,5 @@
+#include <math.h>
+
 #include "Arduino.h"
 #include "AudioStream.h"
 #include "arm_math.h"
@@ -25,10 +27,12 @@ IntervalTimer timer0;
 int startTimerValue0 = 0;
 // ADC INITIAL
 
+static float32_t bias = 0; // BIAS for input
+
 // FFT INITIAL
 #define TEST_LENGTH 1024
 static float32_t testInput[TEST_LENGTH];
-// static float32_t testOutput[TEST_LENGTH];
+static float32_t testOutput[TEST_LENGTH];
 static float32_t testOutput2[TEST_LENGTH*2];
 static float32_t a0, a1;
 // static float32_t w0, w1;
@@ -75,15 +79,17 @@ char c=0;
 
 void loop() {
   
-  uint16_t i;
+  int i, deltaf;
+  int f1 = 0, f2 = 200;
+  // float32_t maxValue = 1, tspeed;
+  float32_t tspeed;
   float32_t testTmp[TEST_LENGTH*2];
-//  
-  Serial.println("Starting");
-  Serial.println(millis()); // <-------
+   // Serial.println("\nStarting");
+  // Serial.println(millis()); // <-------
 
   kn = 0;
   startTimerValue0 = timer0.begin(timer0_callback, period0);
-//  Serial.println(millis());
+  //  Serial.println(millis());
 
   if(startTimerValue0==false) {
           Serial.println("Timer0 setup failed");
@@ -107,18 +113,80 @@ void loop() {
   delayMicroseconds(readPeriod);
   digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
   timer0.end();
+
+  bias = 0;
+
+  for(i=0; i<512; i++)
+  {
+//   Serial.printf("%f\t", testInput[i*2]);
+   bias = bias + testInput[i*2] / 512.0;
+  }
+//  Serial.printf("\ninput %f\n", bias);
   
-////////INITIAL////////
-  a0 = arm_cos_f32(2*PI*0/10000);
-  a1 = -arm_sin_f32(2*PI*0/10000);
+  // ADD WINDOW FOR INPUT
+  apply_window(testInput, winGauss512);
+  // ADD WINDOW FOR INPUT
+
+  for(i=0; i<512; i++)
+  {
+    Serial.printf("%f\t", testInput[i*2]);
+  }
+  Serial.printf("\nwin input above\n");
+
+  arm_cfft_f32_app(testInput);
+
+  arm_cmplx_mag_f32(testOutput, testOutput, 512);
+
+  // for(i=0; i<512; i++)
+  // {
+  //   Serial.printf("%f\t", testOutput[i]);
+  // }
+  // Serial.printf("\nOutFFTtestIn\n");
+
+  for (i = 0; i < 256; i++) {
+    testOutput[i] = 20*log10(testOutput[i] / 1240); // 1 vdB
+  }
+
+  for (i = 255; i > 0; i--) {
+    if (testOutput[i] > -0) break;
+  }
+
+  // Serial.printf("Max %f, %f Hz\n", testOutput[i], i*10000/512.0);
+  // Serial1.printf("Max %f, %f Hz\n", testOutput[i], i*10000/512.0);
+
+  for(int j=0; j<255; j++)
+  {
+    Serial.printf("%f\t", testOutput[j]);
+  }
+  Serial.printf("\nfft above\n");
+
+  //////// INITIAL ////////
+  //-----------------------------------------//
+  deltaf = i * 10000 / 512;
+
+  if  (deltaf < 500) {
+    f1 = 0; f2 = 1000; // in hertz
+  }
+  else if (deltaf >= 4500) {
+    f1 = 4000; f2 = 5000;
+  }
+  else {
+    i = floor(deltaf/1000.0);
+    // Serial.printf("i %d\n", i);
+    f1 = int(i*1000 - 500); f2 = int(i*1000 + 500);
+    // Serial.printf("f1 %d\n", f1);
+  }
+  //-----------------------------------------//
+  a0 = arm_cos_f32(2*PI*f1/10000);
+  a1 = -arm_sin_f32(2*PI*f1/10000);
   aa[0] = 1;
   aa[1] = 0;
 
   for(int i = 0; i < 512; i++)
   {
     float32_t tmp_r, tmp_i, tmpa_r, tmpa_i;
-    tmp_r = arm_cos_f32(i * i * PI*(200-0)/512/10000);
-    tmp_i = -arm_sin_f32(i * i * PI*(200-0)/512/10000);
+    tmp_r = arm_cos_f32(i * i * PI*(f2-f1)/512/10000);
+    tmp_i = -arm_sin_f32(i * i * PI*(f2-f1)/512/10000);
     ww[(511 + i) * 2] = tmp_r;
     ww[(511 + i) * 2 + 1] = tmp_i;
     ww[(511 - i) * 2] = tmp_r;
@@ -134,11 +202,12 @@ void loop() {
   ww[2047] = 0;
   
   arm_cmplx_conj_f32(ww, ww, 1024);
-////////INITIAL////////
-  Serial.println(micros()); // <-------
-  Serial.println(micros()); // <-------
+  //////// INITIAL ////////
+
+  // Serial.println(micros()); // <-------
+  // Serial.println(micros()); // <-------
   arm_cmplx_mult_cmplx_f32(testInput, aa, testInput, 512);
-  Serial.println(micros()); // <-------
+  // Serial.println(micros()); // <-------
   for (i=0; i<1024; i++)
   {
     testTmp[i] = testInput[i];
@@ -167,34 +236,84 @@ void loop() {
 
   arm_cmplx_mag_f32(testInput, testInput, 512); //input buffer, real output buffer, number of complex samples in the input vector
 
-  Serial.println("Serial Output in us:");
-  Serial.println(micros()); // <-------
+  // arm_max_f32(testInput, 512, &maxValue, &i);
+
+  // for(i=0; i<512; i++)
+  // {
+  //  Serial.printf("%f\t", testInput[i]);
+  // }
+  // Serial.printf("max %f", maxValue);
+
+  for (i = 0; i < 512; i++) {
+    // testInput[i] = 20*log10(testInput[i] / maxValue);
+    testInput[i] = 20*log10(testInput[i] / 1240);
+  }
 
   for(i=0; i<512; i++)
   {
-    Serial.printf("%f\t", winGauss512[i]);
+    Serial.printf("%f\t", testInput[i]);
   }
+  Serial.printf("\ncft above\n");
   
-  Serial.println(millis()); // <-------
-  Serial1.printf("\n****testOutput Above****\n");
+//  i = 511; 
+//  for (int j = 511; j > 0; j--)
+//  {
+//    if (testInput[j] >=  testInput[i])
+//    {
+//      i = j;
+//    }
+//  }
 
-//  Serial1.write('A');
-
-  // receive data from another XBee module
-  val = Serial1.read();
-  Serial.print(val);
-  if (-1 != val) {
-    if ('A' == val) {
-      digitalWrite(ledPin, HIGH);
-      delay(250);
-      digitalWrite(ledPin, LOW);
-      delay(250);
-      digitalWrite(ledPin, HIGH);
-      delay(250);
-      digitalWrite(ledPin, LOW);
-      delay(250);
+  i = 0;
+  for (int j = 0; j < 512; j++)
+  {
+    if (testInput[j] >=  testInput[i] && testInput[j] > - 10)
+    {
+      i = j;
     }
   }
+
+  tspeed = f1 + i*1000/512.0; // f
+
+  tspeed = tspeed / 161.0;  // f/(8.05*2*10)
+
+  if (tspeed < 0.125) tspeed = 0;
+
+  Serial.printf("The speed is: %f m/s \n", tspeed);
+  Serial1.printf("%f\n", tspeed);
+  delay(50);
+
+  // Serial.println("Serial Output in us:");
+  // Serial.println(micros()); // <-------
+
+
+  // Test for window
+  // for(i=0; i<512; i++)
+  // {
+  //   Serial.printf("%f\t", winGauss512[i]);
+  // }
+  // Test for window
+  
+  // Serial.println(millis()); // <-------
+  // Serial1.printf("\n****testOutput Above****\n");
+
+  //  Serial1.write('A');
+
+  // receive data from another XBee module
+//  val = Serial1.read();
+//  // Serial.print(val);
+//  if (-1 != val) {
+//    if ('A' == val) {
+//      digitalWrite(ledPin, HIGH);
+//      delay(250);
+//      digitalWrite(ledPin, LOW);
+//      delay(250);
+//      digitalWrite(ledPin, HIGH);
+//      delay(250);
+//      digitalWrite(ledPin, LOW);
+//      delay(250);
+//    }
+//  }
 
 }
 
@@ -207,13 +326,13 @@ void timer0_callback(void) {
 
 // when the measurement finishes, this will be called
 // first: see which pin finished and then save the measurement into the correct buffer
-void adc0_isr() {
-
+void adc0_isr()
+{
     uint8_t pin = ADC::sc1a2channelADC0[ADC0_SC1A&ADC_SC1A_CHANNELS]; // the bits 0-4 of ADC0_SC1A have the channel
 
     // add value to correct buffer
     if(pin==readPin0) {
-        testInput[kn*2] = (adc->readSingle()) - 1241;
+        testInput[kn*2] = (adc->readSingle()); // SUBTRACT BIAS
         testInput[kn*2+1] = 0;
         kn++;
         if (kn >= 512) {
@@ -236,40 +355,39 @@ void adc0_isr() {
 }
  
  
-// void arm_cfft_f32_app(float32_t *data)
-// {
-// //  uint16_t i;
-//   arm_copy_f32(data, testOutput, 1024);
-//   arm_cfft_radix4_instance_f32 S;
-  
-//   // fft
-//   arm_cfft_radix4_init_f32(&S, fftSize, 0, 1);
-//   arm_cfft_radix4_f32(&S, testOutput);
-//   // fft
+void arm_cfft_f32_app(float32_t *data)
+{
+  arm_copy_f32(data, testOutput, 1024);
+  arm_cfft_radix2_instance_f32 S;
 
-// //  for(i=0; i<512; i++)
-// //  {
-// //    Serial.printf("%f\t", testOutput[i*2]);
-// ////    Serial.printf("%f\t", testOutput[i*2+1]);
-// //  }
-// //  Serial.printf("\n****testOutput Above****\n");
-// //  for(i=0; i<512; i++)
-// //  {
-// //    Serial.printf("%f\t", testOutput[i*2+1]);
-// //  }
-// //  Serial.printf("\n****testOutput Above****\n");
-// //    
-// //  Serial.printf("****Finshed****\n");
-// }
+  // for(int i=0; i<512; i++)
+  // {
+  //   Serial.printf("%f\t", testOutput[i*2]);
+  //   Serial.printf("%f\t", testOutput[i*2+1]);
+  // }
+  // Serial.printf("\n****testInput Above****\n");
+  
+  // fft
+  arm_cfft_radix2_init_f32(&S, fftSize, 0, 1);
+  arm_cfft_radix2_f32(&S, testOutput);
+  // fft
+
+  // for(int i=0; i<512; i++)
+  // {
+  //   Serial.printf("%f\t", testOutput[i*2]);
+  //   Serial.printf("%f\t", testOutput[i*2+1]);
+  // }
+  // Serial.printf("\n****testOutput Above****\n");
+}
 
 // void arm_cifft_f32_app(float32_t *data)
 // {
 // //  uint16_t i;
 //   arm_copy_f32(data, testOutput, 1024);
-//   arm_cfft_radix4_instance_f32 S;
+//   arm_cfft_radix2_instance_f32 S;
 //   // ifft
-//   arm_cfft_radix4_init_f32(&S, fftSize, 1, 1);
-//   arm_cfft_radix4_f32(&S, testOutput);
+//   arm_cfft_radix2_init_f32(&S, fftSize, 1, 1);
+//   arm_cfft_radix2_f32(&S, testOutput);
 //   // ifft
 
 // //  for(i=0; i<512; i++)
@@ -304,4 +422,13 @@ void arm_cifft2_f32_app(float32_t *data)
   arm_cfft_radix4_init_f32(&S, fftSize2, 1, 1);
   arm_cfft_radix4_f32(&S, testOutput2);
   // ifft
+}
+
+static void apply_window(float32_t *buf, const float32_t *win)
+{
+  for (int i=0; i < 512; i++) {
+    *buf = (*buf - bias) * *win++;
+    buf += 2;
+  }
+
 }
