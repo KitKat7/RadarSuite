@@ -77,7 +77,7 @@ void setup() {
 
   ///// ADC0 ////
   // reference can be ADC_REF_3V3, ADC_REF_1V2 (not for Teensy LC) or ADC_REF_EXT.
-  adc->setReference(ADC_REF_EXT, ADC_0); // change all 3.3 to 1.2 if you change the reference to 1V2
+  adc->setReference(ADC_REF_3V3, ADC_0); // change all 3.3 to 1.2 if you change the reference to 1V2
 
   adc->setAveraging(8); // set number of averages
   adc->setResolution(12); // set bits of resolution
@@ -86,7 +86,7 @@ void setup() {
   adc->setSamplingSpeed(ADC_HIGH_SPEED); // change the sampling speed
 
   ////// ADC1 /////
-  adc->setReference(ADC_REF_EXT, ADC_1);
+  adc->setReference(ADC_REF_3V3, ADC_1);
   adc->setAveraging(8, ADC_1); // set number of averages
   adc->setResolution(12, ADC_1); // set bits of resolution
 
@@ -145,15 +145,21 @@ void loop() {
             Serial.print("isContinuous: ");
             Serial.println(adc->adc0->isContinuous());
         }
-             else if (c == 't')
+          else if (c == 't')
         {
           AD9833_WaveSeting(100, 0, TRI_WAVE, 0);
           AD9833_AmpSet(106); //106 --> 1.5V, offset 0.2V
+          mode = 1;
+          period0 = 50; // us
+          readPeriod = 25000; // us
         }
           else if (c == 'n')
         {
           AD9833_Write(0x0140); // Cut off DAC
           AD9833_AmpSet(0);
+          mode = 0;
+          period0 = 100; // us
+          readPeriod = 51200; // us
         }
           else if ('A' == c) {
           digitalWrite(ledPin, HIGH);
@@ -385,11 +391,17 @@ void loop() {
      {
        AD9833_WaveSeting(100, 0, TRI_WAVE, 0);
        AD9833_AmpSet(106); //106 --> 1.5V, offset 0.2V
+       mode = 1;
+       period0 = 50; // us
+       readPeriod = 25000; // us
      }
      else if (c == 'n')
      {
        AD9833_Write(0x0140); // Cut off DAC
        AD9833_AmpSet(0);
+       mode = 0;
+       period0 = 100; // us
+       readPeriod = 51200; // us
      }
      else if ('A' == c) {
       digitalWrite(ledPin, HIGH);
@@ -586,17 +598,18 @@ void adc0_isr()
     testInput1[kn] = (uint16_t)result.result_adc0;
     //        testInput[kn*2+1] = 0;
     testInput2[kn] =  (uint16_t)result.result_adc1;
-    kn++;
     Serial.printf("%d %d@tri\n", testInput1[kn], testInput2[kn]);
+    kn++;
     if (kn >= 500) {
       kn = 0;
       timer0.end();
     }
   }
   else {
-    testInput[kn*2] = (adc->readSingle());
+//    testInput[kn*2] = (adc->readSingle());
     testInput[kn*2+1] = 0;
-    Serial.printf("%f@none\n", testInput[kn*2]);
+//    Serial.printf("%f@none\n", testInput[kn*2]);
+    Serial.println(adc->readSingle(), DEC);
     kn++;
     if (kn >= 512) {
       kn = 0;
